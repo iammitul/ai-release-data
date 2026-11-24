@@ -370,6 +370,10 @@ def build_prices():
                 if old.get(f) is not None and m.get(f) is not None and old[f] != m[f]:
                     changes.append({"model": m["api_id"], "name": m["name"], "vendor": m["vendor"],
                                     "kind": "change", "field": f, "old": old[f], "new": m[f], "ts": NOW})
+            if m.get("price_change_date") and m.get("price_change_date") != old.get("price_change_date"):
+                changes.append({"model": m["api_id"], "name": m["name"], "vendor": m["vendor"],
+                                "kind": "announced", "date": m["price_change_date"],
+                                "input": m.get("input_after"), "output": m.get("output_after"), "ts": NOW})
     changes = [c for c in changes if c["ts"] >= NOW - 180 * DAY][-400:]
     keep = ("name", "api_id", "vendor", "input", "output", "cache", "batch_input", "batch_output",
             "context_window", "price_change_date", "input_after", "output_after", "deprecated")
