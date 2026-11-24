@@ -15,6 +15,7 @@ SOURCES, PREV, OUT = sys.argv[1:4]
 NOW = int(time.time())
 DAY = 86400
 UA = "AIReleaseTrackerBot/1.0 (+https://github.com/iammitul/ai-release-data)"
+BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36 AIReleaseTracker"
 TOKEN = os.environ.get("GH_TOKEN", "")
 KEEP_DAYS = {"news": 7, "products": 21, "repos": 30}
 CAP = {"news": 600, "products": 400, "repos": 300}
@@ -36,6 +37,7 @@ AI_TOPICS = {"ai", "llm", "llms", "machine-learning", "deep-learning", "artifici
              "ollama", "embeddings", "vector-database", "multimodal", "speech-recognition", "tts"}
 
 TAG = re.compile(r"<[^>]+>")
+JUNK = re.compile(r"\s*(Discussion\s*\|\s*Link|The post .{0,200} appeared first on .{0,80}\.?|Read more|Continue reading.*)\s*$", re.I)
 IMG = re.compile(r"<img[^>]+src=[\"'](https?://[^\"']+)[\"']", re.I)
 GH = re.compile(r"https?://(?:www\.)?github\.com/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))/([A-Za-z0-9._-]{1,100})")
 GH_RESERVED = {"features", "topics", "sponsors", "marketplace", "apps", "settings", "login", "about",
@@ -132,10 +134,12 @@ def fetch_source(src):
     """Returns (entries, used_url, error). Entries are feedparser entries or dicts for APIs."""
     urls = src["url"] if isinstance(src["url"], list) else [src["url"]]
     err = None
-    for u in urls:
+    attempts = [(u, ua) for u in urls for ua in (None, BROWSER_UA)]
+    for u, ua in attempts:
         try:
             raw = get(u, accept="application/json" if src.get("kind") == "hf_papers"
-                      else "application/rss+xml, application/atom+xml, application/xml, text/xml, */*")
+                      else "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+                      headers={"User-Agent": ua} if ua else None)
             if src.get("kind") == "hf_papers":
                 return json.loads(raw), u, None
             parsed = feedparser.parse(raw)
@@ -156,7 +160,7 @@ def items_from(src, entries):
         link, title = e.get("link"), text(e.get("title"))
         if not link or not title:
             continue
-        summary = "" if src.get("nosummary") else trim(text(e.get("summary") or ""))
+        summary = "" if src.get("nosummary") else trim(JUNK.sub("", text(e.get("summary") or "")))
         if summary and summary.lower().rstrip("…").strip() in title.lower():
             summary = ""
         if src.get("filter") == "ai" and not AI_RE.search(f"{title} {summary}"):
@@ -227,7 +231,8 @@ def repo_candidates(sources, fetched):
                 t = when(e)
                 if t and t < cutoff:
                     continue
-                blobs = [e.get("link"), e.get("summary")] + [c.get("value") for c in e.get("content") or []]
+                blobs = [e.get("link")] if src.get("linkonly") else \
+                    [e.get("link"), e.get("summary")] + [c.get("value") for c in e.get("content") or []]
                 names += repos_in(*blobs)
         for full in names:
             c = cands.setdefault(full.lower(), {"full": full, "via": []})
@@ -365,9 +370,19 @@ def build_prices():
                     changes.append({"model": m["api_id"], "name": m["name"], "vendor": m["vendor"],
                                     "kind": "change", "field": f, "old": old[f], "new": m[f], "ts": NOW})
     changes = [c for c in changes if c["ts"] >= NOW - 180 * DAY][-400:]
+    keep = ("name", "api_id", "vendor", "input", "output", "cache", "batch_input", "batch_output",
+            "context_window", "price_change_date", "input_after", "output_after", "deprecated")
+    slim = []
+    for m in models:
+        x = {k: m[k] for k in keep if m.get(k) is not None}
+        primary = next((p for p in m.get("prices") or [] if p.get("primary")), None)
+        if primary and primary.get("source"):
+            x["pricingUrl"] = primary["source"].get("url")
+            x["verified"] = primary["source"].get("verified_at")
+        slim.append(x)
     save("prices.json", {"updated": NOW, "sourceUpdated": data.get("updated"),
                          "source": "llmprices.org", "sourceUrl": "https://llmprices.org",
-                         "license": data.get("license"), "models": models, "changes": changes})
+                         "license": data.get("license"), "models": slim, "changes": changes})
     return f"ok, {len(models)} models, {len(changes)} changes on record"
 
 
