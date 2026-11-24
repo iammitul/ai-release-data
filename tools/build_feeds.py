@@ -188,10 +188,19 @@ def build_tab(tab, sources, fetched):
                 merged[it["id"]] = it
                 kept += 1
         fetched[src["id"]][3]["kept"] = kept
-    active = {s["id"] for s in sources}
+    by_id = {s["id"]: s for s in sources}
     for pid, it in prev.items():
-        if pid not in merged and it["ts"] >= cutoff and it["src"] in active:
-            merged[pid] = it
+        src = by_id.get(it["src"])
+        if pid in merged or it["ts"] < cutoff or src is None:
+            continue
+        # Older items get the same cleanup and filters as fresh ones, so rule changes apply to them too.
+        if it.get("summary"):
+            it["summary"] = JUNK.sub("", it["summary"]).strip() or None
+        if src.get("nosummary"):
+            it.pop("summary", None)
+        if src.get("filter") == "ai" and not AI_RE.search(f"{it['title']} {it.get('summary') or ''}"):
+            continue
+        merged[pid] = it
     items = sorted(merged.values(), key=lambda i: i["ts"], reverse=True)[:CAP[tab]]
     for i in items:
         if not i.get("image"):
