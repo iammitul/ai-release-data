@@ -22,6 +22,7 @@ CAP = {"news": 600, "products": 400, "repos": 300}
 SUMMARY_LEN = 280
 GH_CALLS = 450          # GitHub API budget per run (the Actions token allows 1,000 an hour)
 REPO_MIN_STARS = 20
+STATE_VERSION = 2       # bump to rebuild repo history from scratch
 
 AI_WORDS = (r"ai|a\.i\.|llms?|gpts?|gpt-\w+|agents?|agentic|machine learning|deep learning|ml|"
             r"neural|claude|gemini|chatgpt|openai|anthropic|mcp|model context protocol|rag|"
@@ -392,6 +393,8 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     sources = load(SOURCES, [])
     state = load(os.path.join(PREV, "state.json"), {})
+    if state.get("v") != STATE_VERSION:
+        state = {"v": STATE_VERSION}
     # Several sources share a feed URL (one for news, one for repos), so fetch each URL once.
     by_url, fetched = {}, {}
     with cf.ThreadPoolExecutor(12) as pool:
