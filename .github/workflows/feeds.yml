@@ -1,0 +1,48 @@
+name: Update feeds
+
+# Builds news.json, products.json, repos.json, prices.json and sources.json for the app.
+# Output lives on the "feeds" branch as a single commit that is replaced every run,
+# so the repository history does not grow every hour.
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: feeds
+  cancel-in-progress: false
+
+jobs:
+  feeds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install feedparser==6.0.11
+      - name: Get the previous output
+        run: |
+          mkdir -p prev out
+          if git fetch --depth 1 origin feeds; then git archive FETCH_HEAD | tar -x -C prev; fi
+      - name: Build feeds
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/build_feeds.py tools/sources.json prev out
+      - name: Report
+        run: cat out/report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish to the feeds branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd out
+          git init -q -b feeds
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Feeds $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" feeds
