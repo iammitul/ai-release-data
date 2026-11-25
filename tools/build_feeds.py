@@ -23,29 +23,48 @@ SUMMARY_LEN = 280
 GH_CALLS = 450          # GitHub API budget per run (the Actions token allows 1,000 an hour)
 REPO_MIN_STARS = 20
 STATE_VERSION = 2       # bump to rebuild repo history from scratch
-RULES_VERSION = 2       # bump when News/Products filters change, so kept items are sorted again
+RULES_VERSION = 3       # bump when News/Products filters change, so kept items are sorted again
 
 # Lab blogs mix product news with research and stories. Products keeps posts that are
 # tagged as products or announce something; News gets the rest.
-LAUNCH_RE = re.compile(
+# Clear launches always count as product updates.
+STRONG_LAUNCH_RE = re.compile(
     r"\b(introduc\w*|launch\w*|now available|available (?:now|today|in|on|to|for)|rolling out|rolls out|"
-    r"releas\w*|announc\w*|new|update[sd]?|ships?|shipping|brings?|adds?|gets|expand\w*|general availability|"
-    r"beta|preview|pricing|upgrade\w*|features?|try|meet|unveil\w*|debut\w*|coming to|arrives?)\b", re.I)
-PRODUCT_TAGS = {"product", "products", "product updates", "release notes", "gemini app", "gemini models",
+    r"general availability|unveil\w*|debut\w*|is here|are here|coming to|arrives?|now in beta|is now|are now|"
+    r"can now|now (?:lets|supports?|works|has|with))\b"
+    # Feature posts often start with an instruction: "Turn artifacts into apps".
+    r"|^(turn|create|make|connect|share|say hello to|bring)\b", re.I)
+# Company news (money, deals, people, policy) goes to News even when it "announces" something.
+COMPANY_RE = re.compile(
+    r"\b(ipo|initial public offering|funding|raises|series [a-f]|acquires|acquisition|appoints|hires|earnings|"
+    r"lawsuit|testimony|letter|policy|board|valuation)\b", re.I)
+# Stories, guides, interviews and customer case studies go to News.
+STORY_RE = re.compile(
+    r"(^(how|why|what|when|where|who|inside|behind|lessons|a look)\b)|\b(helps?|uses?|used|using|partners? with|"
+    r"customers?|case study|guide|interview|podcast|webinar|on ai\b|explains?|ways to|tips|story|stories|"
+    r"perspective|reflections?|q&a)\b", re.I)
+WEAK_LAUNCH_RE = re.compile(
+    r"\b(releas\w*|announc\w*|new|update[sd]?|ships?|shipping|brings?|adds?|gets|expand\w*|beta|preview|"
+    r"pricing|upgrade\w*|features?|try|meet)\b", re.I)
+PRODUCT_TAGS = {"product", "products", "product updates", "release notes", "gemini app", "gemini models", "gemini",
                 "developer tools", "google labs", "chatgpt", "codex", "api", "claude", "announcements",
-                "copilot", "github copilot", "changelog"}
+                "copilot", "github copilot", "changelog", "search", "android", "chrome", "maps", "google workspace",
+                "pixel", "workspace"}
 NOT_PRODUCT_TAGS = {"science", "research", "webinars", "startup", "guides", "demos", "engineering",
                     "global affairs", "safety", "ai adoption", "openai on openai", "publication",
-                    "intelligence age", "arts & culture", "policy", "learning", "education", "customer stories"}
+                    "intelligence age", "arts & culture", "policy", "learning", "education", "customer stories",
+                    "company announcements (deprecated)"}
 
 
 def is_product(title, tags):
     tags = {t.lower().strip() for t in tags}
-    if LAUNCH_RE.search(title):
+    if COMPANY_RE.search(title):
+        return False
+    if STRONG_LAUNCH_RE.search(title):
         return True
-    if tags & PRODUCT_TAGS and not tags & NOT_PRODUCT_TAGS:
-        return True
-    return False
+    if STORY_RE.search(title) or tags & NOT_PRODUCT_TAGS:
+        return False
+    return bool(WEAK_LAUNCH_RE.search(title) or tags & PRODUCT_TAGS)
 
 AI_WORDS = (r"ai|a\.i\.|llms?|gpts?|gpt-\w+|agents?|agentic|machine learning|deep learning|ml|"
             r"neural|claude|gemini|chatgpt|openai|anthropic|mcp|model context protocol|rag|"
