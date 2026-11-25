@@ -23,6 +23,29 @@ SUMMARY_LEN = 280
 GH_CALLS = 450          # GitHub API budget per run (the Actions token allows 1,000 an hour)
 REPO_MIN_STARS = 20
 STATE_VERSION = 2       # bump to rebuild repo history from scratch
+RULES_VERSION = 2       # bump when News/Products filters change, so kept items are sorted again
+
+# Lab blogs mix product news with research and stories. Products keeps posts that are
+# tagged as products or announce something; News gets the rest.
+LAUNCH_RE = re.compile(
+    r"\b(introduc\w*|launch\w*|now available|available (?:now|today|in|on|to|for)|rolling out|rolls out|"
+    r"releas\w*|announc\w*|new|update[sd]?|ships?|shipping|brings?|adds?|gets|expand\w*|general availability|"
+    r"beta|preview|pricing|upgrade\w*|features?|try|meet|unveil\w*|debut\w*|coming to|arrives?)\b", re.I)
+PRODUCT_TAGS = {"product", "products", "product updates", "release notes", "gemini app", "gemini models",
+                "developer tools", "google labs", "chatgpt", "codex", "api", "claude", "announcements",
+                "copilot", "github copilot", "changelog"}
+NOT_PRODUCT_TAGS = {"science", "research", "webinars", "startup", "guides", "demos", "engineering",
+                    "global affairs", "safety", "ai adoption", "openai on openai", "publication",
+                    "intelligence age", "arts & culture", "policy", "learning", "education", "customer stories"}
+
+
+def is_product(title, tags):
+    tags = {t.lower().strip() for t in tags}
+    if LAUNCH_RE.search(title):
+        return True
+    if tags & PRODUCT_TAGS and not tags & NOT_PRODUCT_TAGS:
+        return True
+    return False
 
 AI_WORDS = (r"ai|a\.i\.|llms?|gpts?|gpt-\w+|agents?|agentic|machine learning|deep learning|ml|"
             r"neural|claude|gemini|chatgpt|openai|anthropic|mcp|model context protocol|rag|"
@@ -166,13 +189,24 @@ def items_from(src, entries):
             summary = ""
         if src.get("filter") == "ai" and not AI_RE.search(f"{title} {summary}"):
             continue
+        if src.get("filter") in ("product", "notproduct"):
+            tags = [t.get("term") or "" for t in e.get("tags") or []]
+            if is_product(title, tags) != (src["filter"] == "product"):
+                continue
         out.append({"id": item_id(link), "src": src["id"], "title": title, "summary": summary,
                     "url": link, "image": image(e), "ts": when(e)})
     return out
 
 
 def build_tab(tab, sources, fetched):
-    prev = {i["id"]: i for i in load(os.path.join(PREV, f"{tab}.json"), {}).get("items", [])}
+    prev_file = load(os.path.join(PREV, f"{tab}.json"), {})
+    # When the sorting rules change, rebuild from the sources instead of keeping old items,
+    # but remember when each item was first seen so nothing looks new again.
+    seen_before = {}
+    for other in ("news", "products"):
+        for i in load(os.path.join(PREV, f"{other}.json"), {}).get("items", []):
+            seen_before.setdefault(i["id"], i.get("seen"))
+    prev = {i["id"]: i for i in prev_file.get("items", [])} if prev_file.get("rules") == RULES_VERSION else {}
     merged, cutoff = {}, NOW - KEEP_DAYS[tab] * DAY
     for src in sources:
         entries = fetched[src["id"]][0]
@@ -181,7 +215,7 @@ def build_tab(tab, sources, fetched):
             if it["id"] in merged:
                 continue
             old = prev.get(it["id"])
-            it["seen"] = old["seen"] if old else NOW
+            it["seen"] = old["seen"] if old else (seen_before.get(it["id"]) or NOW)
             if it["ts"] is None:
                 it["ts"] = it["seen"]
             if it["ts"] >= cutoff:
@@ -207,7 +241,7 @@ def build_tab(tab, sources, fetched):
             i.pop("image", None)
         if not i.get("summary"):
             i.pop("summary", None)
-    save(f"{tab}.json", {"updated": NOW, "items": items})
+    save(f"{tab}.json", {"updated": NOW, "rules": RULES_VERSION, "items": items})
     return len(items)
 
 
