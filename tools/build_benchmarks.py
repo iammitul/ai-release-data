@@ -115,6 +115,11 @@ def match(index, name):
     ids = exact.get(k)
     if not ids:
         ids = loose_index.get(loose(k))
+        # A preview or experimental run is a different checkpoint: it may only land on a
+        # model that is itself a preview or experimental release, never on the final one.
+        early = {"preview", "exp"} & set(k.split("-"))
+        if ids and early:
+            ids = {mid for mid in ids if early & set(key(mid).split("-"))}
         for mid in ids or ():
             LOOSE_HITS.setdefault(mid, set()).add(name)
     return sorted(ids) if ids else []
