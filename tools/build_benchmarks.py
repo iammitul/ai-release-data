@@ -95,10 +95,18 @@ def model_index():
     return exact, loose_index
 
 
+# Source names that only matched through the looser second try, for the report.
+LOOSE_HITS = {}
+
+
 def match(index, name):
     exact, loose_index = index
     k = key(name)
-    ids = exact.get(k) or loose_index.get(loose(k))
+    ids = exact.get(k)
+    if not ids:
+        ids = loose_index.get(loose(k))
+        for mid in ids or ():
+            LOOSE_HITS.setdefault(mid, set()).add(name)
     return sorted(ids) if ids else []
 
 
@@ -196,6 +204,8 @@ def main():
         f.write(f"# Benchmarks {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(NOW))}\n\n")
         f.write(f"{len(out)} models with scores. Errors: {errors or 'none'}\n\n")
         f.write(f"Unmatched names ({len(unmatched)}):\n\n" + "\n".join(sorted(unmatched)) + "\n")
+        f.write(f"\nLoose matches ({len(LOOSE_HITS)} models), check these by eye:\n\n")
+        f.write("\n".join(f"{mid} <= {', '.join(sorted(n))}" for mid, n in sorted(LOOSE_HITS.items())) + "\n")
     print(f"benchmarks: {len(out)} models, {sum(len(v) for v in out.values())} scores, {len(unmatched)} unmatched")
 
 
