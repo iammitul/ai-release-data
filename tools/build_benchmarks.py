@@ -52,12 +52,26 @@ def key(name):
 
 
 def split_epoch(version):
-    """'gemini-4-neon_xhigh' -> ('gemini-4-neon', 'xhigh')"""
+    """'gemini-4-neon_xhigh' -> ('gemini-4-neon', 'xhigh'); 'claude-opus-4-6_32K' -> ('claude-opus-4-6', '32k')"""
     if "_" in version:
         base, lvl = version.rsplit("_", 1)
-        if lvl.lower() in LEVELS:
-            return base, LEVELS[lvl.lower()]
+        low = lvl.lower()
+        if low in LEVELS:
+            return base, LEVELS[low]
+        if re.fullmatch(r"\d+k", low):
+            return base, low  # thinking budget in tokens
     return version, None
+
+
+# Words that change a name without changing the model, dropped for a looser second try.
+LOOSE_DROP = re.compile(r"-(instruct|chat|hf|fp8|bf16|preview|exp|latest|fallback|oss|it|\d+e|0)(?=-|$)")
+
+
+def loose(k):
+    prev = None
+    while prev != k:
+        prev, k = k, LOOSE_DROP.sub("", k)
+    return k
 
 
 def split_arena(name):
@@ -72,16 +86,19 @@ def split_arena(name):
 
 def model_index():
     models = json.load(open(MODELS))
-    index = {}
+    exact, loose_index = {}, {}
     for mid, m in models.items():
         for k in {key(mid), key(m.get("name") or "")}:
             if k:
-                index.setdefault(k, set()).add(mid)
-    return index
+                exact.setdefault(k, set()).add(mid)
+                loose_index.setdefault(loose(k), set()).add(mid)
+    return exact, loose_index
 
 
 def match(index, name):
-    ids = index.get(key(name))
+    exact, loose_index = index
+    k = key(name)
+    ids = exact.get(k) or loose_index.get(loose(k))
     return sorted(ids) if ids else []
 
 
