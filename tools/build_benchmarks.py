@@ -35,8 +35,18 @@ LEVELS = {"none": "none", "minimal": "minimal", "low": "low", "medium": "medium"
           "xhigh": "xhigh", "max": "max", "promax": "max", "thinking": "thinking", "unknown": None}
 
 
-def get(url):
-    return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=90).read()
+def get(url, tries=4):
+    """Hugging Face's datasets server sometimes answers 500 for a moment; try again."""
+    for attempt in range(tries):
+        try:
+            return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=90).read()
+        except urllib.error.HTTPError as ex:
+            if ex.code < 500 or attempt == tries - 1:
+                raise
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == tries - 1:
+                raise
+        time.sleep(5 * (attempt + 1))
 
 
 def key(name):
@@ -167,15 +177,20 @@ def main():
     prev = os.path.join(PREV, "benchmarks.json")
     index = model_index()
     out, unmatched, errors = {}, set(), []
-    for name, fn in (("Epoch AI", epoch), ("LMArena", arena)):
+    old = json.load(open(prev)) if os.path.exists(prev) else {}
+    for name, src, fn in (("Epoch AI", "epoch", epoch), ("LMArena", "lmarena", arena)):
+        part = {}
         try:
-            fn(index, out, unmatched)
+            fn(index, part, unmatched)
         except Exception as ex:
+            # Keep this source's previous scores; the other source still updates.
             errors.append(f"{name}: {type(ex).__name__}: {ex}"[:200])
-    if errors and os.path.exists(prev):
-        # Keep yesterday's scores rather than publishing a partial set.
-        old = json.load(open(prev))
-        old.setdefault("errors", errors)
+            part = {mid: [r for r in rows if r.get("src") == src]
+                    for mid, rows in old.get("models", {}).items()}
+            part = {mid: rows for mid, rows in part.items() if rows}
+        for mid, rows in part.items():
+            out.setdefault(mid, []).extend(rows)
+    if not out and old:
         json.dump(old, open(os.path.join(OUT, "benchmarks.json"), "w"), separators=(",", ":"))
         print("kept previous benchmarks:", errors)
         return
