@@ -36,6 +36,8 @@ jobs:
         run: python3 tools/build_feeds.py tools/sources.json prev out
       - name: Build benchmarks
         run: python3 tools/build_benchmarks.py models.json prev out || cp prev/benchmarks.json out/ 2>/dev/null || true
+      - name: Build added dates
+        run: python3 tools/build_added.py models.json prev out || cp prev/added.json out/ 2>/dev/null || true
       - name: Report
         run: cat out/report.md out/benchmarks_report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
       - name: Publish to the feeds branch
